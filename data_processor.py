@@ -47,6 +47,7 @@ class DataProcessor:
         word2index = self.load_vocab(vocab_path)
         word2index["<pad>"] = 0
         word2index["<unk>"] = 1
+        self.vocab_size += 2
         features = []
         for data in datas:
             feature = []
