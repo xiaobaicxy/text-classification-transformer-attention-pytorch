@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import numpy as np
-import torch
 
+np.random.seed(123) # 保证每次运行生成的随机数相同
 class DataProcessor:
     def __init__(self, vocab_size):
         self.vocab_size = vocab_size
@@ -16,7 +16,7 @@ class DataProcessor:
                     break
                 word2index[word] = idx
                 idx += 1
-        self.vocab_size = min(self.vocab_size, idx - 2)
+        self.vocab_size = min(self.vocab_size, idx - 2) # 有效词表长度
         return word2index
 
     def read_text(self, pos_path, neg_path):
@@ -45,9 +45,9 @@ class DataProcessor:
     def get_datasets(self, pos_path, neg_path, vocab_path, max_len):
         datas, labels = self.read_text(pos_path, neg_path)
         word2index = self.load_vocab(vocab_path)
-        word2index["<pad>"] = 0
+        word2index["<pad>"] = 0 
         word2index["<unk>"] = 1
-        self.vocab_size += 2
+        self.vocab_size += 2 # 有效次表长度+一位pad+一位unk
         features = []
         for data in datas:
             feature = []

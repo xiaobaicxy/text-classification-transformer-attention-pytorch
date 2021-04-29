@@ -12,6 +12,10 @@ from torch.autograd import Variable
 
 from data_processor import DataProcessor
 
+# 保证每次运行生成的随机数相同
+torch.manual_seed(123)
+torch.cuda.manual_seed(123)
+
 class InputEmbedding(nn.Module):
     def __init__(self, vocab_size, embedding_size, pretrained_embedding=None):
         super(InputEmbedding, self).__init__()
@@ -37,9 +41,9 @@ class PositionEmbedding(nn.Module):
                     for i in range(d_model)
                 ] 
             for pos in range(seq_len)]
-            )
+            ) # 注意 i//2 * 2
         self.pe[:, 0::2] = np.sin(self.pe[:, 0::2])
-        self.pe[:, 1::2] = np.cos(self.pe[:, 1::2])
+        self.pe[:, 1::2] = np.cos(self.pe[:, 1::2]) 
         
     def forward(self):
         pe = nn.Parameter(self.pe, requires_grad=False) # [seq_len, d_model]
@@ -207,7 +211,8 @@ class TransformerEncoder(nn.Module):
 
 class Config:
     def __init__(self):
-        self.vocab_size = 5000 #词表大小
+        # model 参数
+        self.vocab_size = 5000 
         self.d_model = 128
         self.num_head = 8
         self.seq_len = 100
@@ -216,12 +221,14 @@ class Config:
         self.num_classes = 2
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.num_encoder_layer = 2
-
+        
+        # 训练参数
         self.batch_size = 16
         self.epochs = 10
         self.lr = 1e-3
         self.num_epochs = 10
-
+        
+        # 数据路径
         self.vocab_path = "./datasets/aclImdb/imdb.vocab"
         self.train_pos_path = "./datasets/aclImdb/train/pos/" 
         self.train_neg_path = "./datasets/aclImdb/train/neg/" 
@@ -246,7 +253,7 @@ def test(model, test_batchs, loss_func, device):
         loss_val += loss.item() * datas.size(0)
         data_size += datas.size(0)
         
-        #获取预测的最大概率出现的位置
+        # 获取预测的最大概率出现的位置
         preds = torch.argmax(preds, dim=1)
         labels = torch.argmax(labels, dim=1)
         corrects += torch.sum(preds == labels).item()
@@ -279,7 +286,7 @@ def train(model, train_iters, test_batchs, optimizer, loss_func, device, num_bat
         loss_val += loss.item() * datas.size(0)
         data_size += datas.size(0)
         
-        #获取预测的最大概率出现的位置
+        # 获取预测的最大概率出现的位置
         preds = torch.argmax(preds, dim=1)
         labels = torch.argmax(labels, dim=1)
         corrects += torch.sum(preds == labels).item()
@@ -291,7 +298,7 @@ def train(model, train_iters, test_batchs, optimizer, loss_func, device, num_bat
             test_acc = test(model, test_batchs, loss_func, device)
             if(best_val_acc < test_acc):
                 best_val_acc = test_acc
-                best_model_params = copy.deepcopy(model.state_dict())
+                best_model_params = copy.deepcopy(model.state_dict()) # 更新最优参数
         count += 1
 
     model.load_state_dict(best_model_params)
@@ -305,8 +312,8 @@ if __name__ == "__main__":
                                                     config.train_neg_path,
                                                     config.vocab_path,
                                                     config.seq_len)
-    config.vocab_size = processor.vocab_size
-
+    config.vocab_size = processor.vocab_size # 词表实际大小
+a
     test_data, test_label = processor.get_datasets(config.test_pos_path,
                                                     config.test_neg_path,
                                                     config.vocab_path,
