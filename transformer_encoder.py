@@ -313,7 +313,7 @@ if __name__ == "__main__":
                                                     config.vocab_path,
                                                     config.seq_len)
     config.vocab_size = processor.vocab_size # 词表实际大小
-a
+
     test_data, test_label = processor.get_datasets(config.test_pos_path,
                                                     config.test_neg_path,
                                                     config.vocab_path,
