@@ -26,7 +26,9 @@ class DataProcessor:
         pos_files= os.listdir(pos_path) 
         neg_files = os.listdir(neg_path)
         
-        for file_name in pos_files: 
+        for idx, file_name in enumerate(pos_files): 
+            # if idx > 10:
+            #     break
             file_position = pos_path + file_name
             with open(file_position, "r",encoding='utf-8') as f:  
                 data = f.read()   
@@ -34,7 +36,9 @@ class DataProcessor:
                 labels.append([1,0]) #正类标签维[1,0]
 
        
-        for file_name in neg_files:
+        for idx, file_name in enumerate(neg_files):
+            # if idx > 10:
+            #     break
             file_position = neg_path + file_name 
             with open(file_position, "r",encoding='utf-8') as f:
                 data = f.read()
@@ -61,6 +65,7 @@ class DataProcessor:
                 if(len(feature)==max_len): #限制句子的最大长度，超出部分直接截断
                     break
             #对未达到最大长度的句子添加padding
+
             feature = feature + [word2index["<pad>"]] * (max_len - len(feature))
             features.append(feature)
 
