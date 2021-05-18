@@ -71,23 +71,12 @@ class ScaledDotProductAttention(nn.Module):
         super(ScaledDotProductAttention, self).__init__()
         self.d_k = d_k
         
-    def forward(self, Q, K, V, lengths):
+    def forward(self, Q, K, V):
         # Q, K, V: # [batch_size * num_head, seq_len, d_head]
-        # lengths: [batch_size]
-        batch_size = Q.size(0)
-        max_seq_len = Q.size(1)
-        
-        for b_id, cur_len in enumerate(lengths):
-            Q[b_id, cur_len:, :] = 0.0
-            K[b_id, cur_len:, :] = 0.0
-            V[b_id, cur_len:, :] = 0.0
-        
         attention_context = torch.matmul(Q, K.permute(0, 2, 1)) # [batch_size * num_head, seq_len, seq_len]
-        attention_context = attention_context.masked_fill_(attention_context==0, 1e-10)
-
         if self.d_k is not None:
             attention_context = attention_context / (self.d_k ** 0.5)
-        
+        attention_context = attention_context.masked_fill_(attention_context==0.0, -1e10) # mask,为了后续softmax
         attention_w = F.softmax(attention_context, dim=2) # [batch_size * num_head, seq_len, seq_len]
         context = torch.matmul(attention_w, V) # [batch_size * num_head, seq_len, d_head]
         return context
@@ -111,15 +100,18 @@ class MultiHeadAttention(nn.Module):
         # x: [batch_size, seq_len, d_model]
         # lengths: [batch_size]
         batch_size = x.size(0)
+        for b_id, cur_len in enumerate(lengths):
+            x[b_id, cur_len:, :] = 0.0 # mask
+        
         Q = self.Q_fc(x).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
         K = self.K_fc(x).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
         V = self.V_fc(x).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
-        
+
         Q = Q.view(batch_size * self.num_head, self.d_head, -1).permute(0, 2, 1).contiguous() # [batch_size * num_head, seq_len, d_head]
         K = K.view(batch_size * self.num_head, self.d_head, -1).permute(0, 2, 1).contiguous() # [batch_size * num_head, seq_len, d_head]
         V = V.view(batch_size * self.num_head, self.d_head, -1).permute(0, 2, 1).contiguous() # [batch_size * num_head, seq_len, d_head]
 
-        context = self.attention(Q, K, V, lengths).permute(0, 2, 1).contiguous() # [batch_size * num_head, d_head, seq_len]
+        context = self.attention(Q, K, V).permute(0, 2, 1).contiguous() # [batch_size * num_head, d_head, seq_len]
         context = context.view(batch_size, self.num_head * self.d_head, -1).permute(0, 2, 1).contiguous() # [batch_size, seq_len, d_model]
         # out = self.fc(context) # [batch_size, seq_len, d_model]
         out = self.dropout(context)
@@ -137,11 +129,15 @@ class PositionWiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(d_model)
     
-    def forward(self, x):
+    def forward(self, x, lengths):
         # x: [batch_size, seq_len, d_model]
+        # lengths: [batch_size]
+        for b_id, cur_len in enumerate(lengths):
+            x[b_id, cur_len:, :] = 0.0
         out = self.fc1(x) # [batch_size, seq_len, hidden_size]
-        out = self.act_func(out) # [batch_size, seq_len, d_model]
+        out = self.act_func(out)
         out = self.fc2(out) # [batch_size, seq_len, d_model]
+        out = self.act_func(out)
         out = self.dropout(out)
         out = out + x
         out = self.layer_norm(out)
@@ -158,7 +154,7 @@ class EncoderLayer(nn.Module):
         # x: [batch_size, seq_len, d_model]
         # lengths: [batch_size]
         out = self.multi_head_attention(x, lengths) # [batch_size, seq_len, d_model]
-        out = self.position_wise_feed_forward(out) # [batch_size, seq_len, d_model]
+        out = self.position_wise_feed_forward(out, lengths) # [batch_size, seq_len, d_model]
         return out
 
 
@@ -175,11 +171,11 @@ class WeightSum(nn.Module):
         # x: [batch_size, seq_len, d_model]
         # lengths: [batch_size]
         for b_id, cur_len in enumerate(lengths):
-            x[b_id, cur_len:, :] = 0.0
+            x[b_id, cur_len:, :] = 0.0 # mask
 
         if not self.avg:
             attention_context = torch.matmul(self.weight, x.permute(0, 2, 1)) # [batch_size, seq_len]
-            attention_context = attention_context.masked_fill_(attention_context==0, 1e-10)
+            attention_context = attention_context.masked_fill_(attention_context==0.0, -1e10) # mask
             attention_w = F.softmax(attention_context, dim=-1) # [batch_size, seq_len]
             attention_w = attention_w.unsqueeze(dim=1) # [batch_size, 1, seq_len]
             out = torch.bmm(attention_w, x)  #[batch_size, 1, d_model] 
@@ -194,11 +190,13 @@ class ClassifierLayer(nn.Module):
         super(ClassifierLayer, self).__init__()
         self.fc1 = nn.Linear(d_model, hidden_size)
         self.fc2 = nn.Linear(hidden_size, num_classes)
+        self.act_func = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x):
         # x: [batch_size, d_model]
         out = self.fc1(x) # [batch_size, hidden_size]
+        out = self.act_func(out)
         out = self.dropout(out)
         out = self.fc2(out) # [batch_size, num_classes]
         out = F.softmax(out, dim=-1)
@@ -218,9 +216,8 @@ class TransformerEncoder(nn.Module):
             copy.deepcopy(self.encoder_layer)
             for _ in range(config.num_encoder_layer)
         ])
-        self.weight_sum = WeightSum(config.seq_len, config.d_model, avg=True)
+        self.weight_sum = WeightSum(config.seq_len, config.d_model)
         self.classifer = ClassifierLayer(config.d_model, config.hidden_size, config.num_classes, config.dropout)
-        
     
     def forward(self, x, lengths):
         # x: [batch_size, seq_len]
@@ -248,7 +245,7 @@ class Config:
         
         # 训练参数
         self.batch_size = 64
-        self.lr = 0.005
+        self.lr = 0.0002
         self.num_epochs = 50000
         
         # 数据路径
@@ -322,7 +319,7 @@ def train(model, train_iters, test_batchs, optimizer, loss_func, device, num_bat
 
         train_loss = loss_val / (data_size + (1e-10))
         train_acc = corrects / (data_size + (1e-10))
-        if count % (1000 * num_batches_per_epoch) == 0:
+        if count % (200 * num_batches_per_epoch) == 0:
             print("Train Loss: {}, Train Acc: {}".format(train_loss, train_acc))
             test_acc = test(model, test_batchs, loss_func, device)
             if(best_val_acc < test_acc):
