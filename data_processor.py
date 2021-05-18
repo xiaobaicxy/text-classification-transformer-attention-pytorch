@@ -15,7 +15,7 @@ class DataProcessor:
                 if idx > self.vocab_size + 2:
                     break
                 word = word.strip()
-                word2index[word] = idx
+                word2index[word.lower()] = idx
                 idx += 1
         self.vocab_size = min(self.vocab_size, idx - 2) # 有效词表长度
         return word2index
