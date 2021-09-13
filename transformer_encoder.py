@@ -83,14 +83,15 @@ class ScaledDotProductAttention(nn.Module):
     
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model, num_head, dropout=0.0):
+    def __init__(self, d_model, num_head, device="cpu", dropout=0.0):
         super(MultiHeadAttention, self).__init__()
         self.num_head = num_head
+        self.device = device
         assert d_model % num_head == 0
         self.d_head = d_model // num_head
-        self.Q_fc = nn.Linear(d_model, d_model)
-        self.K_fc = nn.Linear(d_model, d_model)
-        self.V_fc = nn.Linear(d_model, d_model)
+        self.proj_Q = torch.randn((d_model), requires_grad=True)
+        self.proj_K = torch.randn((d_model), requires_grad=True)
+        self.proj_V = torch.randn((d_model), requires_grad=True)
         self.attention = ScaledDotProductAttention(d_model)
         # self.fc = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
@@ -103,9 +104,9 @@ class MultiHeadAttention(nn.Module):
         for b_id, cur_len in enumerate(lengths):
             x[b_id, cur_len:, :] = 0.0 # mask
         
-        Q = self.Q_fc(x).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
-        K = self.K_fc(x).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
-        V = self.V_fc(x).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
+        Q = torch.mul(x, self.proj_Q.to(self.device)).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
+        K = torch.mul(x, self.proj_K.to(self.device)).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
+        V = torch.mul(x, self.proj_V.to(self.device)).permute(0, 2, 1).contiguous() # [batch_size, d_model, seq_len]
 
         Q = Q.view(batch_size * self.num_head, self.d_head, -1).permute(0, 2, 1).contiguous() # [batch_size * num_head, seq_len, d_head]
         K = K.view(batch_size * self.num_head, self.d_head, -1).permute(0, 2, 1).contiguous() # [batch_size * num_head, seq_len, d_head]
@@ -206,7 +207,7 @@ class TransformerEncoder(nn.Module):
     def __init__(self, config):
         super(TransformerEncoder, self).__init__()
         self.embedding = Embedding(config.vocab_size, config.d_model, config.seq_len, config.device, config.dropout)
-        self.multi_head_attention = MultiHeadAttention(config.d_model, config.num_head, config.dropout)
+        self.multi_head_attention = MultiHeadAttention(config.d_model, config.num_head, config.device, config.dropout)
         self.position_wise_feed_forward = PositionWiseFeedForward(config.d_model, config.hidden_size, config.dropout)
         self.encoder_layer = EncoderLayer(
             self.multi_head_attention,
